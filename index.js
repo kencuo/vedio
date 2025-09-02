@@ -30,6 +30,27 @@ function getGenerateFunction() {
 }
 
 /**
+ * 获取SillyTavern的getStringHash函数
+ */
+function getStringHashFunction() {
+  return window.getStringHash || window.parent?.getStringHash || window.top?.getStringHash;
+}
+
+/**
+ * 获取SillyTavern的getBase64Async函数
+ */
+function getBase64AsyncFunction() {
+  return window.getBase64Async || window.parent?.getBase64Async || window.top?.getBase64Async;
+}
+
+/**
+ * 获取SillyTavern的getFileExtension函数
+ */
+function getFileExtensionFunction() {
+  return window.getFileExtension || window.parent?.getFileExtension || window.top?.getFileExtension;
+}
+
+/**
  * 将文件转换为base64
  */
 function convertFileToBase64(file) {
@@ -60,17 +81,20 @@ window.__uploadVideoToSillyTavern = async function (file) {
       throw new Error('SillyTavern的saveBase64AsFile函数不可用');
     }
 
-    // 转换视频为base64
-    const base64DataUrl = await convertFileToBase64(file);
+    // 使用SillyTavern官方函数处理文件（与chat.js第204-208行完全相同）
+    const getStringHash = getStringHashFunction();
+    const getBase64Async = getBase64AsyncFunction();
+    const getFileExtension = getFileExtensionFunction();
 
-    // 提取纯base64数据（去掉data:前缀）
-    const base64Data = base64DataUrl.split(',')[1];
+    if (!getStringHash || !getBase64Async || !getFileExtension) {
+      throw new Error('SillyTavern的工具函数不可用');
+    }
 
-    // 生成文件信息（与官方chat.js完全相同的方式）
-    const extension = file.name.split('.').pop()?.toLowerCase() || 'mp4';
-    const timestamp = Date.now();
-    const slug = file.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10);
-    const fileNamePrefix = `${timestamp}_${slug}`;
+    const slug = getStringHash(file.name);
+    const fileNamePrefix = `${Date.now()}_${slug}`;
+    const fileBase64 = await getBase64Async(file);
+    let base64Data = fileBase64.split(',')[1];
+    const extension = getFileExtension(file);
 
     // 获取当前角色名作为subFolder（与官方chat.js相同）
     const name2 = window.name2 || window.parent?.name2 || window.top?.name2 || 'user';
@@ -213,6 +237,10 @@ window.__isVideoFile = function (file) {
 window.__getVideoPluginStatus = function () {
   const saveFunction = getSaveBase64AsFileFunction();
   const generateFunction = getGenerateFunction();
+  const getStringHash = getStringHashFunction();
+  const getBase64Async = getBase64AsyncFunction();
+  const getFileExtension = getFileExtensionFunction();
+  const name2 = window.name2 || window.parent?.name2 || window.top?.name2;
 
   return {
     pluginName: PLUGIN_NAME,
@@ -220,7 +248,17 @@ window.__getVideoPluginStatus = function () {
     environment: {
       hasSaveBase64AsFile: typeof saveFunction === 'function',
       hasGenerate: typeof generateFunction === 'function',
-      isReady: typeof saveFunction === 'function' && typeof generateFunction === 'function',
+      hasGetStringHash: typeof getStringHash === 'function',
+      hasGetBase64Async: typeof getBase64Async === 'function',
+      hasGetFileExtension: typeof getFileExtension === 'function',
+      hasName2: typeof name2 === 'string',
+      name2Value: name2 || 'N/A',
+      isReady:
+        typeof saveFunction === 'function' &&
+        typeof generateFunction === 'function' &&
+        typeof getStringHash === 'function' &&
+        typeof getBase64Async === 'function' &&
+        typeof getFileExtension === 'function',
     },
     supportedFormats: ['mp4', 'webm', 'ogg', 'avi', 'mov', 'mkv'],
     maxVideoSize: '100MB',
