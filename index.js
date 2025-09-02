@@ -61,16 +61,19 @@ window.__uploadVideoToSillyTavern = async function (file) {
     }
 
     // 转换视频为base64
-    const base64Data = await convertFileToBase64(file);
+    const base64DataUrl = await convertFileToBase64(file);
 
-    // 生成文件信息（与官方chat.js相同的方式）
+    // 提取纯base64数据（去掉data:前缀）
+    const base64Data = base64DataUrl.split(',')[1];
+
+    // 生成文件信息（与官方utils.js相同的方式）
     const extension = file.name.split('.').pop()?.toLowerCase() || 'mp4';
     const timestamp = Date.now();
-    const name2 = `video_${timestamp}`;
-    const fileNamePrefix = `video_${timestamp}`;
+    const subFolder = 'videos'; // 子文件夹
+    const fileName = `video_${timestamp}`; // 文件名
 
     // 使用SillyTavern官方函数保存视频
-    const videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
+    const videoUrl = await saveBase64AsFile(base64Data, subFolder, fileName, extension);
 
     console.log(`✅ 视频上传成功: ${videoUrl}`);
     console.log(`📏 URL长度: ${videoUrl.length} 字符`);
