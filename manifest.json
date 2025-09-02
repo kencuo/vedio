@@ -1,0 +1,96 @@
+{
+  "display_name": "ctrl同层手机喵识视频",
+  "loading_order": 65,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "",
+  "author": "kencuo",
+  "version": "1.0.0",
+  "homePage": "https://github.com/kencuo/chajian",
+  "description": "专门的视频识别插件，配合同层私聊使用。上传视频自动获取短URL，支持本地AI视频内容识别。与ctrl同层手机喵识图插件完美配合。",
+  "tags": ["video", "ai", "recognition", "同层私聊", "手机界面", "媒体处理"],
+  "files": [
+    {
+      "filename": "index.js",
+      "description": "视频识别核心功能文件"
+    }
+  ],
+  "features": {
+    "videoUpload": {
+      "name": "视频上传",
+      "description": "上传视频到SillyTavern获取短URL，类似 /user/video_123456.mp4",
+      "api": "__uploadVideoToSillyTavern",
+      "example": "window.__uploadVideoToSillyTavern(file)"
+    },
+    "aiRecognition": {
+      "name": "AI视频识别",
+      "description": "使用本地AI模型识别视频内容，支持GPT-4V、Claude等",
+      "api": "__recognizeVideoWithAI",
+      "example": "window.__recognizeVideoWithAI(videoUrl, '请描述视频内容')"
+    },
+    "completeProcess": {
+      "name": "一键处理",
+      "description": "上传+AI识别完整流程，同层私聊专用",
+      "api": "__processVideoComplete",
+      "example": "window.__processVideoComplete(file, {enableAI: true})"
+    }
+  },
+  "apis": {
+    "exposed": [
+      "__uploadVideoToSillyTavern",
+      "__recognizeVideoWithAI",
+      "__processVideoComplete",
+      "__isVideoFile",
+      "__getVideoPluginStatus"
+    ],
+    "required": ["saveBase64AsFile", "generate"]
+  },
+  "configuration": {
+    "maxVideoSize": {
+      "type": "number",
+      "default": 100,
+      "min": 10,
+      "max": 500,
+      "description": "最大视频文件大小(MB)"
+    },
+    "defaultPrompt": {
+      "type": "string",
+      "default": "请分析这个视频的内容，描述你看到的场景、动作、物体和任何重要的视觉信息。请用中文回答。",
+      "description": "默认AI分析提示词"
+    },
+    "enableAIByDefault": {
+      "type": "boolean",
+      "default": true,
+      "description": "默认启用AI识别"
+    }
+  },
+  "compatibility": {
+    "sillyTavernVersion": ">=1.11.0",
+    "requiredFeatures": ["saveBase64AsFile", "generate", "video_support"],
+    "testedWith": ["同层私聊喵喵喵2", "同层群聊6"]
+  },
+  "installation": {
+    "instructions": [
+      "1. 将插件文件放入SillyTavern的extensions目录",
+      "2. 重启SillyTavern或刷新页面",
+      "3. 在扩展管理中启用'SillyTavern视频识别插件'",
+      "4. 在同层私聊中上传视频即可自动使用"
+    ],
+    "requirements": ["SillyTavern 1.11.0+", "支持视频识别的AI模型", "足够的存储空间"]
+  },
+  "usage": {
+    "examples": [
+      {
+        "scenario": "同层私聊上传视频",
+        "description": "用户在同层私聊中选择视频文件，插件自动上传获取短URL并进行AI识别",
+        "expectedResult": "获得类似 '/user/video_123456.mp4' 的短URL和AI识别描述"
+      },
+      {
+        "scenario": "手动调用API",
+        "description": "开发者可以直接调用 window.__processVideoComplete(file, options)",
+        "expectedResult": "返回包含短URL和AI识别结果的对象"
+      }
+    ]
+  }
+}
