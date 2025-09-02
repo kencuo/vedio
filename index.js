@@ -66,14 +66,17 @@ window.__uploadVideoToSillyTavern = async function (file) {
     // 提取纯base64数据（去掉data:前缀）
     const base64Data = base64DataUrl.split(',')[1];
 
-    // 生成文件信息（与官方utils.js相同的方式）
+    // 生成文件信息（与官方chat.js完全相同的方式）
     const extension = file.name.split('.').pop()?.toLowerCase() || 'mp4';
     const timestamp = Date.now();
-    const subFolder = 'videos'; // 子文件夹
-    const fileName = `video_${timestamp}`; // 文件名
+    const slug = file.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10);
+    const fileNamePrefix = `${timestamp}_${slug}`;
 
-    // 使用SillyTavern官方函数保存视频
-    const videoUrl = await saveBase64AsFile(base64Data, subFolder, fileName, extension);
+    // 获取当前角色名作为subFolder（与官方chat.js相同）
+    const name2 = window.name2 || window.parent?.name2 || window.top?.name2 || 'user';
+
+    // 使用SillyTavern官方函数保存视频（与chat.js第218行完全相同）
+    const videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
 
     console.log(`✅ 视频上传成功: ${videoUrl}`);
     console.log(`📏 URL长度: ${videoUrl.length} 字符`);
