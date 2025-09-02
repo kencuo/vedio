@@ -1,8 +1,10 @@
 /**
  * ctrl同层手机喵识视频插件
- * 直接暴露SillyTavern本地API，让同层私聊能够：
- * 1. 上传视频获得短URL (使用saveBase64AsFile)
- * 2. AI识别视频内容 (使用generate函数)
+ * 让同层私聊能够像SillyTavern原生界面一样上传视频：
+ * 1. 上传视频到SillyTavern服务器 (使用saveBase64AsFile API)
+ * 2. 获得与原生上传相同格式的短URL
+ * 3. AI识别视频内容 (使用generate函数)
+ * 4. 统一的视频管理和AI识别体验
  *
  * 作者: kencuo
  * 项目: https://github.com/kencuo/chajian
@@ -44,8 +46,9 @@ function convertFileToBase64(file) {
 }
 
 /**
- * 上传视频到SillyTavern并获取短URL
- * 这是SillyTavern官方的方式，与chat.js中的处理相同
+ * 上传视频到SillyTavern服务器并获取短URL
+ * 使用SillyTavern官方的saveBase64AsFile API，与原生上传完全相同
+ * 视频保存位置和URL格式与SillyTavern原生上传一致
  */
 window.__uploadVideoToSillyTavern = async function (file) {
   try {
