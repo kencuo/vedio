@@ -1,286 +1,225 @@
 /**
- * ctrl同层手机喵识视频插件
- * 让同层私聊能够像SillyTavern原生界面一样上传视频：
- * 1. 上传视频到SillyTavern服务器 (使用saveBase64AsFile API)
- * 2. 获得与原生上传相同格式的短URL
- * 3. AI识别视频内容 (使用generate函数)
- * 4. 统一的视频管理和AI识别体验
+ * ctrl同层手机喵识视频插件 (V3 - 免补丁健壮版)
+ * 这是一个在无法应用补丁的情况下的最佳尝试版本。
+ * 它会尝试直接访问SillyTavern主程序的功能，并优雅地处理因跨域安全限制而导致的失败。
  *
- * 作者: kencuo
+ * 作者: kencuo (由Gemini重构)
  * 项目: https://github.com/kencuo/chajian
  */
 
-const PLUGIN_NAME = 'ctrl同层手机喵识视频';
-const PLUGIN_VERSION = '1.0.0';
+const PLUGIN_NAME = 'ctrl同层手机喵识视频 (免补丁健壮版)';
+const PLUGIN_VERSION = '3.0.0';
 
 console.log(`🎬 ${PLUGIN_NAME} v${PLUGIN_VERSION} 正在加载...`);
 
 /**
- * 获取SillyTavern的saveBase64AsFile函数
+ * @description 安全地从SillyTavern父窗口获取一个函数或变量。
+ * 这是本插件的核心，用于在不导致崩溃的情况下处理跨域错误。
+ * @param {string} name - 要获取的函数或变量的名称
+ * @returns {any|null} - 如果成功则返回函数或变量，否则返回null。
  */
-function getSaveBase64AsFileFunction() {
-  return window.saveBase64AsFile || window.parent?.saveBase64AsFile || window.top?.saveBase64AsFile;
+function getFromTavern(name) {
+    try {
+        if (typeof parent !== 'undefined' && parent && typeof parent[name] !== 'undefined') {
+            return parent[name];
+        }
+    } catch (e) {
+        // 这就是预期的跨域错误，我们在这里捕获它，防止它在控制台刷屏。
+        // 我们只在第一次检查时打印一次警告。
+        if (!window.__tavern_connection_failed) {
+            console.warn(`❌ 无法访问SillyTavern功能'${name}'。这是由浏览器的跨域安全策略导致的。插件功能将受限。`);
+            window.__tavern_connection_failed = true; // 设置一个标志，避免重复警告
+        }
+        return null;
+    }
+    return null;
 }
 
 /**
- * 获取SillyTavern的generate函数
+ * @description 将文件异步转换为Base64编码。这是一个独立的内部工具函数。
+ * @param {File} file - 文件对象
+ * @returns {Promise<string>} - 返回Base64字符串 (包含头部)
  */
-function getGenerateFunction() {
-  return window.generate || window.parent?.generate || window.top?.generate;
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(file);
+    });
 }
 
 /**
- * 获取SillyTavern的getStringHash函数
- */
-function getStringHashFunction() {
-  return window.getStringHash || window.parent?.getStringHash || window.top?.getStringHash;
-}
-
-/**
- * 获取SillyTavern的getBase64Async函数
- */
-function getBase64AsyncFunction() {
-  return window.getBase64Async || window.parent?.getBase64Async || window.top?.getBase64Async;
-}
-
-/**
- * 获取SillyTavern的getFileExtension函数
- */
-function getFileExtensionFunction() {
-  return window.getFileExtension || window.parent?.getFileExtension || window.top?.getFileExtension;
-}
-
-/**
- * 将文件转换为base64
- */
-function convertFileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = function (e) {
-      resolve(e.target.result);
-    };
-    reader.onerror = function (error) {
-      reject(error);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-/**
- * 上传视频到SillyTavern服务器并获取短URL
- * 使用SillyTavern官方的saveBase64AsFile API，与原生上传完全相同
- * 视频保存位置和URL格式与SillyTavern原生上传一致
+ * [公开API] 上传视频到SillyTavern服务器并获取短URL。
+ * @param {File} file - 要上传的视频文件
+ * @returns {Promise<object>} - 包含成功状态、URL、文件名等信息的对象
  */
 window.__uploadVideoToSillyTavern = async function (file) {
-  try {
-    console.log(`🎬 开始上传视频: ${file.name}`);
+    console.log(`🎬 [免补丁版] 尝试上传视频: ${file.name}`);
+    
+    // 每次调用时都重新获取函数，以防SillyTavern是后加载的
+    const saveBase64AsFile = getFromTavern('saveBase64AsFile');
+    const getStringHash = getFromTavern('getStringHash');
+    const getFileExtension = getFromTavern('getFileExtension');
+    const name2 = getFromTavern('name2');
 
-    // 获取SillyTavern的saveBase64AsFile函数
-    const saveBase64AsFile = getSaveBase64AsFileFunction();
-    if (!saveBase64AsFile) {
-      throw new Error('SillyTavern的saveBase64AsFile函数不可用');
+    if (!saveBase64AsFile || !getStringHash || !getFileExtension || !name2) {
+        const errorMsg = '无法连接到SillyTavern的核心上传功能。';
+        console.error(`❌ [免补丁版] ${errorMsg}`);
+        return { success: false, error: errorMsg, fileName: file.name, fileSize: file.size };
     }
 
-    // 使用SillyTavern官方函数处理文件（与chat.js第204-208行完全相同）
-    const getStringHash = getStringHashFunction();
-    const getBase64Async = getBase64AsyncFunction();
-    const getFileExtension = getFileExtensionFunction();
+    try {
+        const fileBase64 = await fileToBase64(file);
+        const base64Data = fileBase64.split(',')[1];
+        if (!base64Data) throw new Error('无效的Base64数据');
 
-    if (!getStringHash || !getBase64Async || !getFileExtension) {
-      throw new Error('SillyTavern的工具函数不可用');
+        const slug = getStringHash(file.name);
+        const fileNamePrefix = `${Date.now()}_${slug}`;
+        const extension = getFileExtension({ name: file.name });
+        
+        const videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
+
+        console.log(`✅ [免补丁版] 视频上传成功: ${videoUrl}`);
+        return {
+            success: true,
+            url: videoUrl,
+            isShortUrl: videoUrl.length < 100,
+            fileName: file.name,
+            fileSize: file.size,
+            uploadTime: new Date().toISOString(),
+        };
+    } catch (error) {
+        console.error('❌ [免补丁版] 视频上传失败:', error);
+        return { success: false, error: error.message, fileName: file.name, fileSize: file.size };
     }
-
-    const slug = getStringHash(file.name);
-    const fileNamePrefix = `${Date.now()}_${slug}`;
-    const fileBase64 = await getBase64Async(file);
-    let base64Data = fileBase64.split(',')[1];
-    const extension = getFileExtension(file);
-
-    // 获取当前角色名作为subFolder（与官方chat.js相同）
-    const name2 = window.name2 || window.parent?.name2 || window.top?.name2 || 'user';
-
-    // 使用SillyTavern官方函数保存视频（与chat.js第218行完全相同）
-    const videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
-
-    console.log(`✅ 视频上传成功: ${videoUrl}`);
-    console.log(`📏 URL长度: ${videoUrl.length} 字符`);
-
-    return {
-      success: true,
-      url: videoUrl,
-      isShortUrl: videoUrl.length < 100,
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      uploadTime: new Date().toISOString(),
-    };
-  } catch (error) {
-    console.error('❌ 视频上传失败:', error);
-    return {
-      success: false,
-      error: error.message,
-      fileName: file.name,
-      fileSize: file.size,
-    };
-  }
 };
 
 /**
- * 使用SillyTavern的AI识别视频内容
- * 这是SillyTavern官方支持的方式
+ * [公开API] 使用SillyTavern的AI识别视频内容。
+ * @param {string} videoUrl - 视频的短URL
+ * @param {string} [prompt=null] - 自定义AI提示词
+ * @returns {Promise<object>} - 包含成功状态和AI描述的对象
  */
 window.__recognizeVideoWithAI = async function (videoUrl, prompt = null) {
-  try {
-    console.log('🤖 开始AI视频识别...');
-
-    // 获取SillyTavern的AI生成函数
-    const generate = getGenerateFunction();
+    console.log('🤖 [免补丁版] 尝试进行AI视频识别...');
+    
+    const generate = getFromTavern('generate');
     if (!generate) {
-      throw new Error('SillyTavern的generate函数不可用');
+        const errorMsg = '无法连接到SillyTavern的AI生成功能。';
+        console.error(`❌ [免补丁版] ${errorMsg}`);
+        return { success: false, error: errorMsg, videoUrl: videoUrl };
     }
+    
+    try {
+        const defaultPrompt = '请分析这个视频的内容，描述你看到的场景、动作、物体和任何重要的视觉信息。请用中文回答。';
+        const analysisPrompt = prompt || defaultPrompt;
 
-    // 默认提示词
-    const defaultPrompt = '请分析这个视频的内容，描述你看到的场景、动作、物体和任何重要的视觉信息。请用中文回答。';
-    const analysisPrompt = prompt || defaultPrompt;
+        const aiRequest = {
+            injects: [{
+                role: 'system',
+                content: analysisPrompt,
+                position: 'in_chat',
+                depth: 0,
+                should_scan: true,
+            }],
+            should_stream: false,
+            video: videoUrl,
+        };
 
-    // 构建AI请求（与测试文件中相同的格式）
-    const aiRequest = {
-      injects: [
-        {
-          role: 'system',
-          content: analysisPrompt,
-          position: 'in_chat',
-          depth: 0,
-          should_scan: true,
-        },
-      ],
-      should_stream: false,
-      video: videoUrl, // 关键：传递视频URL给AI
-    };
+        const aiResponse = await generate(aiRequest);
+        console.log('✅ [免补丁版] AI视频识别完成');
 
-    console.log('🤖 发送AI识别请求...');
-    const aiResponse = await generate(aiRequest);
-
-    console.log('✅ AI视频识别完成');
-
-    return {
-      success: true,
-      description: aiResponse,
-      prompt: analysisPrompt,
-      videoUrl: videoUrl,
-    };
-  } catch (error) {
-    console.error('❌ AI视频识别失败:', error);
-    return {
-      success: false,
-      error: error.message,
-      videoUrl: videoUrl,
-    };
-  }
+        return {
+            success: true,
+            description: aiResponse,
+            prompt: analysisPrompt,
+            videoUrl: videoUrl,
+        };
+    } catch (error) {
+        console.error('❌ [免补丁版] AI视频识别失败:', error);
+        return { success: false, error: error.message, videoUrl: videoUrl };
+    }
 };
 
 /**
- * 完整的视频处理：上传 + AI识别
- * 这是同层私聊最需要的功能
+ * [公开API] 完整的视频处理流程：上传 + AI识别。
+ * @param {File} file - 要处理的视频文件
+ * @param {object} [options={}] - 选项，例如 { enableAI: true, prompt: '...' }
+ * @returns {Promise<object>} - 包含所有处理结果的最终对象
  */
 window.__processVideoComplete = async function (file, options = {}) {
-  try {
-    console.log(`🎬 开始完整视频处理: ${file.name}`);
+    console.log(`🎬 [免补丁版] 开始完整视频处理: ${file.name}`);
+    try {
+        const uploadResult = await window.__uploadVideoToSillyTavern(file);
+        if (!uploadResult.success) {
+            throw new Error(`视频上传失败: ${uploadResult.error}`);
+        }
 
-    // 1. 上传视频获取短URL
-    const uploadResult = await window.__uploadVideoToSillyTavern(file);
-    if (!uploadResult.success) {
-      throw new Error(`视频上传失败: ${uploadResult.error}`);
+        let aiResult = null;
+        if (options.enableAI !== false) {
+            aiResult = await window.__recognizeVideoWithAI(uploadResult.url, options.prompt);
+        }
+
+        const result = {
+            success: true,
+            ...uploadResult,
+            aiRecognition: aiResult,
+        };
+        console.log('✅ [免补丁版] 视频完整处理成功');
+        return result;
+    } catch (error) {
+        console.error('❌ [免补丁版] 视频完整处理失败:', error);
+        return { success: false, error: error.message, fileName: file.name, fileSize: file.size };
     }
-
-    // 2. AI识别（如果启用）
-    let aiResult = null;
-    if (options.enableAI !== false) {
-      // 默认启用AI识别
-      aiResult = await window.__recognizeVideoWithAI(uploadResult.url, options.prompt);
-    }
-
-    // 3. 返回完整结果
-    const result = {
-      success: true,
-      url: uploadResult.url,
-      isShortUrl: uploadResult.isShortUrl,
-      fileName: uploadResult.fileName,
-      fileSize: uploadResult.fileSize,
-      aiRecognition: aiResult,
-      processingTime: new Date().toISOString(),
-    };
-
-    console.log('✅ 视频完整处理成功');
-    return result;
-  } catch (error) {
-    console.error('❌ 视频完整处理失败:', error);
-    return {
-      success: false,
-      error: error.message,
-      fileName: file.name,
-      fileSize: file.size,
-    };
-  }
 };
 
 /**
- * 检查视频文件类型
+ * [公开API] 检查文件是否为视频。
  */
 window.__isVideoFile = function (file) {
-  return file && file.type && file.type.startsWith('video/');
+    return file && file.type && file.type.startsWith('video/');
 };
 
 /**
- * 获取插件状态
+ * [公开API] 获取插件状态。
  */
 window.__getVideoPluginStatus = function () {
-  const saveFunction = getSaveBase64AsFileFunction();
-  const generateFunction = getGenerateFunction();
-  const getStringHash = getStringHashFunction();
-  const getBase64Async = getBase64AsyncFunction();
-  const getFileExtension = getFileExtensionFunction();
-  const name2 = window.name2 || window.parent?.name2 || window.top?.name2;
+    // 每次都实时检查
+    const tavernFunctions = {
+        saveBase64AsFile: getFromTavern('saveBase64AsFile'),
+        generate: getFromTavern('generate'),
+        getStringHash: getFromTavern('getStringHash'),
+        getFileExtension: getFromTavern('getFileExtension'),
+        name2: getFromTavern('name2'),
+    };
 
-  return {
-    pluginName: PLUGIN_NAME,
-    version: PLUGIN_VERSION,
-    environment: {
-      hasSaveBase64AsFile: typeof saveFunction === 'function',
-      hasGenerate: typeof generateFunction === 'function',
-      hasGetStringHash: typeof getStringHash === 'function',
-      hasGetBase64Async: typeof getBase64Async === 'function',
-      hasGetFileExtension: typeof getFileExtension === 'function',
-      hasName2: typeof name2 === 'string',
-      name2Value: name2 || 'N/A',
-      isReady:
-        typeof saveFunction === 'function' &&
-        typeof generateFunction === 'function' &&
-        typeof getStringHash === 'function' &&
-        typeof getBase64Async === 'function' &&
-        typeof getFileExtension === 'function',
-    },
-    supportedFormats: ['mp4', 'webm', 'ogg', 'avi', 'mov', 'mkv'],
-    maxVideoSize: '100MB',
-  };
+    const isReady = Object.values(tavernFunctions).every(fn => fn !== null);
+
+    return {
+        pluginName: PLUGIN_NAME,
+        version: PLUGIN_VERSION,
+        communicationMethod: 'Direct Access (No-Patch)',
+        isReady: isReady,
+        details: {
+            canUpload: !!tavernFunctions.saveBase64AsFile && !!tavernFunctions.getStringHash && !!tavernFunctions.getFileExtension && !!tavernFunctions.name2,
+            canRecognize: !!tavernFunctions.generate,
+            currentCharacter: tavernFunctions.name2 || 'N/A (无法连接)',
+        }
+    };
 };
 
-// 自动检查环境
+// 初始加载时打印一次状态
 (function () {
-  try {
-    const status = window.__getVideoPluginStatus();
-    if (status.environment.isReady) {
-      console.log(`🎉 ${PLUGIN_NAME} 加载完成！`);
-      console.log('📋 可用接口:');
-      console.log('  - window.__uploadVideoToSillyTavern(file)');
-      console.log('  - window.__recognizeVideoWithAI(videoUrl, prompt)');
-      console.log('  - window.__processVideoComplete(file, options)');
-      console.log('  - window.__isVideoFile(file)');
-      console.log('  - window.__getVideoPluginStatus()');
-    } else {
-      console.warn(`⚠️ ${PLUGIN_NAME} 环境检查失败:`, status.environment);
-    }
-  } catch (error) {
-    console.error(`❌ ${PLUGIN_NAME} 加载失败:`, error);
-  }
+    console.log(`🎉 ${PLUGIN_NAME} 加载完成！正在检查与SillyTavern的连接...`);
+    setTimeout(() => {
+        const status = window.__getVideoPluginStatus();
+        if (status.isReady) {
+            console.log("✅ 插件已准备就绪！所有功能可用。");
+        } else {
+            console.warn("⚠️ 插件功能受限。无法完全连接到SillyTavern。详情请查看 status.details。");
+        }
+        console.log("当前状态:", status);
+    }, 1000);
 })();
+
