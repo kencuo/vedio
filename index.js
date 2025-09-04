@@ -207,34 +207,25 @@ window.__processVideoComplete = async function (file, options = {}) {
     const fileName = `video_${timestamp}.${extension}`;
     console.log(`📝 [视频插件] 生成文件名: ${fileName}`);
 
-    // 调用/api/files/upload端点
-    console.log(`📤 [视频插件] 开始上传到 /api/files/upload...`);
-    const uploadResponse = await fetch('/api/files/upload', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: fileName,
-        data: base64Data,
-      }),
-    });
+    // 获取SillyTavern的saveBase64AsFile函数（与SillyTavern原生chats.js完全相同）
+    const saveBase64AsFile = window.saveBase64AsFile || window.parent?.saveBase64AsFile || window.top?.saveBase64AsFile;
 
-    console.log(`📡 [视频插件] 上传响应: ${uploadResponse.status} ${uploadResponse.statusText}`);
-
-    if (!uploadResponse.ok) {
-      let errorText;
-      try {
-        const errorData = await uploadResponse.json();
-        errorText = errorData.error || errorData.message || `HTTP ${uploadResponse.status}`;
-      } catch {
-        errorText = `HTTP ${uploadResponse.status}: ${uploadResponse.statusText}`;
-      }
-      throw new Error(`上传失败: ${errorText}`);
+    if (!saveBase64AsFile) {
+      throw new Error('SillyTavern的saveBase64AsFile函数不可用');
     }
 
-    const uploadData = await uploadResponse.json();
-    const videoUrl = uploadData.path;
+    console.log(`✅ [视频插件] saveBase64AsFile函数已找到`);
+
+    // 生成文件参数（与SillyTavern原生chats.js完全相同）
+    const fileNamePrefix = `video_${timestamp}`;
+    const name2 = 'user'; // 简化版本，使用固定的文件夹名
+
+    console.log(`📝 [视频插件] 文件参数: name2=${name2}, prefix=${fileNamePrefix}, ext=${extension}`);
+
+    // 使用SillyTavern原生的saveBase64AsFile（与chats.js第218行完全相同）
+    console.log(`📤 [视频插件] 调用saveBase64AsFile...`);
+    const videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
+
     console.log(`✅ [视频插件] 上传成功! URL: ${videoUrl}`);
 
     // 返回结果（与识图插件相同的格式）
