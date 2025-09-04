@@ -281,12 +281,14 @@ window.__processVideoComplete = async function (file, options = {}) {
 
     // 双重上传策略：优先使用SillyTavern原生方式，失败时回退
     let videoUrl;
+    let uploadMethod = 'unknown'; // images(files)
 
     // 方法1: 使用SillyTavern原生的saveBase64AsFile（优先）
     if (ST_SUPPORTED_MEDIA_EXTS.includes(extension)) {
       try {
         console.log(`📤 [视频插件] 方法1: 调用saveBase64AsFile (原生方式)...`);
         videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
+        uploadMethod = 'images';
         console.log(`✅ [视频插件] 原生方式成功! URL: ${videoUrl}`);
       } catch (saveError) {
         console.warn(`⚠️ [视频插件] 原生方式失败: ${saveError.message}`);
@@ -295,6 +297,7 @@ window.__processVideoComplete = async function (file, options = {}) {
         // 方法2: 回退到/api/files/upload
         const fallbackFileName = `${fileNamePrefix}.${extension}`;
         videoUrl = await uploadViaFilesEndpoint(fallbackFileName, base64Data);
+        uploadMethod = 'files';
         console.log(`✅ [视频插件] 回退方式成功! URL: ${videoUrl}`);
       }
     } else {
@@ -302,6 +305,7 @@ window.__processVideoComplete = async function (file, options = {}) {
       console.log(`📤 [视频插件] 扩展名${extension}不被images端点支持，使用files端点...`);
       const fallbackFileName = `${fileNamePrefix}.${extension}`;
       videoUrl = await uploadViaFilesEndpoint(fallbackFileName, base64Data);
+      uploadMethod = 'files';
       console.log(`✅ [视频插件] files端点成功! URL: ${videoUrl}`);
     }
 
@@ -313,6 +317,7 @@ window.__processVideoComplete = async function (file, options = {}) {
       fileSize: file.size,
       fileType: file.type,
       uploadTime: new Date().toISOString(),
+      uploadMethod,
     };
 
     console.log(`🎉 [视频插件] 处理完成:`, result);
