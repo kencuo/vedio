@@ -175,29 +175,41 @@ window.__recognizeVideoWithAI = async function (videoUrl, prompt = null) {
 /**
  * 完整的视频处理：上传 + AI识别
  * 这是同层私聊最需要的功能
- * 修复版本：简化依赖，直接处理
+ * 超级简化版本：完全模仿识图插件的成功模式
  */
 window.__processVideoComplete = async function (file, options = {}) {
   try {
-    console.log(`🎬 开始完整视频处理: ${file.name}`);
-    console.log(`📋 选项:`, options);
+    console.log(`🎬 [视频插件] 开始处理: ${file.name}`);
+    console.log(`📋 [视频插件] 选项:`, JSON.stringify(options));
+    console.log(`📊 [视频插件] 文件信息: ${file.type}, ${(file.size / 1024 / 1024).toFixed(2)}MB`);
 
-    // 1. 上传视频获取短URL（直接在这里实现，避免函数依赖问题）
-    console.log(`📤 开始上传视频...`);
+    // 检查文件类型
+    if (!file.type.startsWith('video/')) {
+      throw new Error(`不是视频文件: ${file.type}`);
+    }
 
-    // 转换视频为base64
-    const fileBase64 = await convertFileToBase64(file);
+    // 转换为base64（与识图插件完全相同的方式）
+    console.log(`🔄 [视频插件] 开始base64转换...`);
+    const fileReader = new FileReader();
+    const base64Promise = new Promise((resolve, reject) => {
+      fileReader.onload = e => resolve(e.target.result);
+      fileReader.onerror = reject;
+      fileReader.readAsDataURL(file);
+    });
+
+    const fileBase64 = await base64Promise;
     const base64Data = fileBase64.split(',')[1];
+    console.log(`✅ [视频插件] base64转换完成，长度: ${base64Data.length}`);
 
-    // 生成文件信息
-    const extension = file.name.split('.').pop()?.toLowerCase() || 'mp4';
+    // 生成文件名（简化版本）
     const timestamp = Date.now();
+    const extension = file.name.split('.').pop()?.toLowerCase() || 'mp4';
     const fileName = `video_${timestamp}.${extension}`;
+    console.log(`📝 [视频插件] 生成文件名: ${fileName}`);
 
-    console.log(`📤 准备上传: ${fileName}`);
-
-    // 直接调用SillyTavern的/api/files/upload端点
-    const response = await fetch('/api/files/upload', {
+    // 调用/api/files/upload端点
+    console.log(`📤 [视频插件] 开始上传到 /api/files/upload...`);
+    const uploadResponse = await fetch('/api/files/upload', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -208,55 +220,37 @@ window.__processVideoComplete = async function (file, options = {}) {
       }),
     });
 
-    console.log(`📡 API响应状态: ${response.status}`);
+    console.log(`📡 [视频插件] 上传响应: ${uploadResponse.status} ${uploadResponse.statusText}`);
 
-    if (!response.ok) {
-      let errorMessage;
+    if (!uploadResponse.ok) {
+      let errorText;
       try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+        const errorData = await uploadResponse.json();
+        errorText = errorData.error || errorData.message || `HTTP ${uploadResponse.status}`;
       } catch {
-        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        errorText = `HTTP ${uploadResponse.status}: ${uploadResponse.statusText}`;
       }
-      throw new Error(errorMessage);
+      throw new Error(`上传失败: ${errorText}`);
     }
 
-    const responseData = await response.json();
-    const videoUrl = responseData.path;
+    const uploadData = await uploadResponse.json();
+    const videoUrl = uploadData.path;
+    console.log(`✅ [视频插件] 上传成功! URL: ${videoUrl}`);
 
-    console.log(`✅ 视频上传成功: ${videoUrl}`);
-
-    // 2. AI识别（如果启用）
-    let aiResult = null;
-    if (options.enableAI !== false && options.enableAI !== 'false') {
-      console.log(`🤖 开始AI识别...`);
-      try {
-        aiResult = await window.__recognizeVideoWithAI(videoUrl, options.prompt);
-        console.log(`✅ AI识别完成:`, aiResult);
-      } catch (aiError) {
-        console.warn(`⚠️ AI识别失败:`, aiError.message);
-        aiResult = { success: false, error: aiError.message };
-      }
-    } else {
-      console.log(`⏭️ 跳过AI识别 (enableAI=${options.enableAI})`);
-    }
-
-    // 3. 返回完整结果
+    // 返回结果（与识图插件相同的格式）
     const result = {
       success: true,
       url: videoUrl,
-      isShortUrl: videoUrl.length < 100,
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type,
-      aiRecognition: aiResult,
-      processingTime: new Date().toISOString(),
+      uploadTime: new Date().toISOString(),
     };
 
-    console.log('✅ 视频完整处理成功:', result);
+    console.log(`🎉 [视频插件] 处理完成:`, result);
     return result;
   } catch (error) {
-    console.error('❌ 视频完整处理失败:', error);
+    console.error(`❌ [视频插件] 处理失败:`, error);
     return {
       success: false,
       error: error.message,
