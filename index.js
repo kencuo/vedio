@@ -47,6 +47,63 @@ function convertFileToBase64(file) {
   });
 }
 
+// SillyTavern后端/images/upload支持的媒体扩展名（与constants.js保持一致的子集）
+const ST_SUPPORTED_MEDIA_EXTS = ['bmp', 'png', 'jpg', 'jpeg', 'jfif', 'gif', 'mp4', 'avi', 'mov', 'wmv', 'flv', 'webm'];
+
+function resolveVideoExtension(file) {
+  // 优先从MIME类型映射
+  const mime = (file.type || '').toLowerCase();
+  const map = {
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/quicktime': 'mov',
+    'video/x-msvideo': 'avi',
+    'video/x-ms-wmv': 'wmv',
+    'video/x-flv': 'flv',
+    'video/ogg': 'ogg', // 可能不被images端点支持，稍后用回退
+    'video/x-matroska': 'mkv', // 可能不被images端点支持，稍后用回退
+  };
+  let ext = map[mime];
+  if (!ext) {
+    // 再从文件名推断
+    ext = (file.name.split('.').pop() || '').toLowerCase();
+  }
+  return ext || 'mp4';
+}
+
+async function uploadViaFilesEndpoint(fileName, base64Data) {
+  const resp = await fetch('/api/files/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: fileName, data: base64Data }),
+  });
+  if (!resp.ok) {
+    let msg;
+    try {
+      const data = await resp.json();
+      msg = data.error || data.message;
+    } catch {
+      msg = await resp.text();
+    }
+    throw new Error(msg || `HTTP ${resp.status}`);
+  }
+  const data = await resp.json();
+  return data.path;
+}
+
+async function getCurrentCharacterNameSafe() {
+  try {
+    const ctx = window.SillyTavern?.getContext?.();
+    if (!ctx) return null;
+    const currentCharacterId = ctx.characterId;
+    const characters = await ctx.characters;
+    const character = characters?.[currentCharacterId];
+    return character?.name || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 上传视频到SillyTavern服务器并获取短URL
  * 使用SillyTavern官方的/api/files/upload端点，专门处理视频文件
@@ -218,15 +275,35 @@ window.__processVideoComplete = async function (file, options = {}) {
 
     // 生成文件参数（与SillyTavern原生chats.js完全相同）
     const fileNamePrefix = `video_${timestamp}`;
-    const name2 = 'user'; // 简化版本，使用固定的文件夹名
+    const name2 = (await getCurrentCharacterNameSafe()) || 'user'; // 尝试获取当前角色名
 
     console.log(`📝 [视频插件] 文件参数: name2=${name2}, prefix=${fileNamePrefix}, ext=${extension}`);
 
-    // 使用SillyTavern原生的saveBase64AsFile（与chats.js第218行完全相同）
-    console.log(`📤 [视频插件] 调用saveBase64AsFile...`);
-    const videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
+    // 双重上传策略：优先使用SillyTavern原生方式，失败时回退
+    let videoUrl;
 
-    console.log(`✅ [视频插件] 上传成功! URL: ${videoUrl}`);
+    // 方法1: 使用SillyTavern原生的saveBase64AsFile（优先）
+    if (ST_SUPPORTED_MEDIA_EXTS.includes(extension)) {
+      try {
+        console.log(`📤 [视频插件] 方法1: 调用saveBase64AsFile (原生方式)...`);
+        videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
+        console.log(`✅ [视频插件] 原生方式成功! URL: ${videoUrl}`);
+      } catch (saveError) {
+        console.warn(`⚠️ [视频插件] 原生方式失败: ${saveError.message}`);
+        console.log(`🔄 [视频插件] 回退到files端点...`);
+
+        // 方法2: 回退到/api/files/upload
+        const fallbackFileName = `${fileNamePrefix}.${extension}`;
+        videoUrl = await uploadViaFilesEndpoint(fallbackFileName, base64Data);
+        console.log(`✅ [视频插件] 回退方式成功! URL: ${videoUrl}`);
+      }
+    } else {
+      // 扩展名不被images端点支持，直接使用files端点
+      console.log(`📤 [视频插件] 扩展名${extension}不被images端点支持，使用files端点...`);
+      const fallbackFileName = `${fileNamePrefix}.${extension}`;
+      videoUrl = await uploadViaFilesEndpoint(fallbackFileName, base64Data);
+      console.log(`✅ [视频插件] files端点成功! URL: ${videoUrl}`);
+    }
 
     // 返回结果（与识图插件相同的格式）
     const result = {
@@ -267,7 +344,7 @@ window.__getVideoPluginStatus = function () {
   const getStringHash = getStringHashFunction();
   const getBase64Async = getBase64AsyncFunction();
   const getFileExtension = getFileExtensionFunction();
-  const name2 = window.name2 || window.parent?.name2 || window.top?.name2;
+  const name2 = 'user';
 
   return {
     pluginName: PLUGIN_NAME,
