@@ -72,10 +72,18 @@ function resolveVideoExtension(file) {
 }
 
 async function uploadViaFilesEndpoint(fileName, base64Data) {
-  const resp = await fetch('/api/files/upload', {
+  // 确保使用正确的origin和凭证
+  const origin = typeof parent !== 'undefined' ? parent.location.origin : location.origin;
+  const url = `${origin}/api/files/upload`;
+
+  const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: fileName, data: base64Data }),
+    credentials: 'include', // 重要：携带Cookie
+    body: JSON.stringify({
+      name: fileName,
+      data: `data:video/${fileName.split('.').pop()};base64,${base64Data}`, // 加上data:前缀
+    }),
   });
   if (!resp.ok) {
     let msg;
@@ -125,14 +133,18 @@ window.__uploadVideoToSillyTavern = async function (file) {
     console.log(`📤 准备上传: ${fileName}`);
 
     // 直接调用SillyTavern的/api/files/upload端点（专门处理视频文件）
-    const response = await fetch('/api/files/upload', {
+    const origin = typeof parent !== 'undefined' ? parent.location.origin : location.origin;
+    const uploadUrl = `${origin}/api/files/upload`;
+
+    const response = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include', // 携带Cookie
       body: JSON.stringify({
         name: fileName,
-        data: base64Data,
+        data: `data:video/${extension};base64,${base64Data}`, // 加上data:前缀
       }),
     });
 
@@ -287,7 +299,14 @@ window.__processVideoComplete = async function (file, options = {}) {
     if (ST_SUPPORTED_MEDIA_EXTS.includes(extension)) {
       try {
         console.log(`📤 [视频插件] 方法1: 调用saveBase64AsFile (原生方式)...`);
-        videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
+        // 兼容两种签名：新式(4参数)和旧式(4参数但参数含义不同)
+        if (saveBase64AsFile.length === 4) {
+          // 新式: saveBase64AsFile(base64Data, storagePath, fileName, extension)
+          videoUrl = await saveBase64AsFile(base64Data, 'user/videos', fileNamePrefix, extension);
+        } else {
+          // 旧式: saveBase64AsFile(base64Data, name2, fileNamePrefix, extension)
+          videoUrl = await saveBase64AsFile(base64Data, name2, fileNamePrefix, extension);
+        }
         uploadMethod = 'images';
         console.log(`✅ [视频插件] 原生方式成功! URL: ${videoUrl}`);
       } catch (saveError) {
@@ -309,6 +328,28 @@ window.__processVideoComplete = async function (file, options = {}) {
       console.log(`✅ [视频插件] files端点成功! URL: ${videoUrl}`);
     }
 
+    // AI 识别（可选，参考识图/文档插件思路）
+    let aiRecognition = null;
+    try {
+      const enableAI = options && options.enableAI === true;
+      if (enableAI) {
+        const recognizer =
+          window.__recognizeVideoWithAI ||
+          (typeof window.parent !== 'undefined' ? window.parent.__recognizeVideoWithAI : null) ||
+          (typeof window.top !== 'undefined' ? window.top.__recognizeVideoWithAI : null);
+        if (typeof recognizer === 'function') {
+          const res = await recognizer(videoUrl, options && options.prompt ? options.prompt : null);
+          if (res && res.success) {
+            aiRecognition = { success: true, description: res.description, prompt: res.prompt };
+          } else if (res) {
+            aiRecognition = { success: false, error: res.error || '识别失败' };
+          }
+        }
+      }
+    } catch (e) {
+      aiRecognition = { success: false, error: e.message };
+    }
+
     // 返回结果（与识图插件相同的格式）
     const result = {
       success: true,
@@ -318,6 +359,7 @@ window.__processVideoComplete = async function (file, options = {}) {
       fileType: file.type,
       uploadTime: new Date().toISOString(),
       uploadMethod,
+      aiRecognition,
     };
 
     console.log(`🎉 [视频插件] 处理完成:`, result);
